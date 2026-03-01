@@ -808,3 +808,50 @@ import secrets
 def generate_id(prefix: str) -> str:
     """Generate a unique ID with prefix"""
     return f"{prefix}_{secrets.token_hex(8)}"
+
+
+# ============ Marketplace Settings ============
+
+class MarketplaceSettings(Base):
+    __tablename__ = "marketplace_settings"
+    
+    id = Column(String, primary_key=True, default=lambda: f"mks_{func.random(16)}")
+    organization_id = Column(String, ForeignKey("organizations.id"), nullable=False, unique=True)
+    
+    # Fee settings
+    platform_fee_percent = Column(Numeric(5, 2), default=2.0)  # Platform fee
+    chama_fee_percent = Column(Numeric(5, 2), default=0)  # Chama fee
+    minimum_fee = Column(Numeric(10, 2), default=10.0)
+    
+    # Features
+    marketplace_enabled = Column(Boolean, default=True)
+    affiliate_enabled = Column(Boolean, default=True)
+    
+    # Payment settings
+    mpesa_enabled = Column(Boolean, default=True)
+    
+    # Contact
+    support_email = Column(String)
+    support_phone = Column(String)
+    
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+# ============ Platform Marketplace Settings ============
+
+class PlatformMarketplaceSettings(Base):
+    __tablename__ = "platform_marketplace_settings"
+    
+    id = Column(String, primary_key=True, default=lambda: f"pms_{func.random(16)}")
+    
+    # Platform fee (goes to platform)
+    platform_fee_percent = Column(Numeric(5, 2), default=2.0)  # Platform fee
+    chama_fee_percent = Column(Numeric(5, 2), default=0)  # Chama fee
+    minimum_platform_fee = Column(Numeric(10, 2), default=10.0)
+    
+    # Global settings
+    global_marketplace_enabled = Column(Boolean, default=True)
+    max_listing_images = Column(Integer, default=5)
+    
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

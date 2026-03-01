@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     AT_API_KEY: Optional[str] = None
     AT_USERNAME: Optional[str] = None
     
+    # Marketplace
+    MARKETPLACE_FEE_PERCENT: float = 2.0  # Platform fee %
+    MARKETPLACE_MIN_FEE: float = 10.0  # Minimum fee in KES
+    
     # Redis
     REDIS_URL: Optional[str] = None
     

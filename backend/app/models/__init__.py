@@ -1,4 +1,3 @@
-# Re-export all models from the unified models.py
 from app.models.models import (
     Vote, Notification, NotificationType, NotificationChannel,
     Organization, Member, Contribution, Loan, LoanRepayment, Proposal,
@@ -7,9 +6,14 @@ from app.models.models import (
     Federation, FederationMember, FederationTreasury, InterChamaLoan, InterChamaRepayment,
     LoginHistory, TwoFactorSetting, APIKey, IPWhitelist, AuditLog,
     PushToken, PushNotification, ScheduledReport,
-    SuperAdmin, PlatformSettings, ChamaTemplate,
-    StandingOrder, NextOfKin, Fine,
+    SuperAdmin, PlatformSettings, ChamaTemplate, PlatformMarketplaceSettings,
+    StandingOrder, NextOfKin, Fine, MarketplaceSettings,
     MemberRole, ContributionMethod, TransactionStatus, LoanStatus, ProposalStatus,
     AssetCategory, AssetStatus, InvestmentType, InvestmentStatus,
     FederationStatus, InterChamaLoanStatus
+)
+from app.models.marketplace import (
+    MarketplaceListing, MarketplaceOrder, MarketplacePayment, MarketplaceReview,
+    MarketplaceFavorite, AffiliateChama, AffiliatePayout,
+    MarketplaceCategory, ListingStatus, OrderStatus
 )
