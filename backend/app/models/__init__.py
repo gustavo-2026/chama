@@ -17,3 +17,4 @@ from app.models.marketplace import (
     MarketplaceFavorite, AffiliateChama, AffiliatePayout,
     MarketplaceCategory, ListingStatus, OrderStatus
 )
+from app.models.mpesa_config import *
