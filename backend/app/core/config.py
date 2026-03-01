@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     
     # Database
-    DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/chama"
+    DATABASE_URL: str = "sqlite:///./chama.db"
     
     # Auth - CRITICAL: Change in production!
     SECRET_KEY: str = "change-me-in-production-min-32-characters"
