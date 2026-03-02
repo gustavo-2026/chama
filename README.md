@@ -1,61 +1,122 @@
 # Chama Microservices
 
-Microservices architecture version of the Chama platform.
+Event-driven microservices architecture with Kafka event bus.
 
 ## Services
 
 | Service | Port | Description |
 |---------|------|-------------|
-| Core | 8001 | Members, Contributions, Loans, Treasury, Proposals |
+| Core | 8001 | Members, Contributions, Loans, Treasury |
 | Marketplace | 8002 | Listings, Orders, Reviews, Escrow |
-| Payments | 8003 | M-Pesa, Pesapal, Wallet, Escrow |
+| Payments | 8003 | M-Pesa, Pesapal, Wallet |
 | Notifications | 8004 | Push, SMS, Email, In-App |
 | Messaging | 8005 | Real-time WebSocket chat |
+| **Kafka** | 9092 | Event Bus |
+
+## Architecture
+
+```
+                    ┌──────────────┐
+                    │ API Gateway  │
+                    │   (Nginx)   │
+                    └──────┬───────┘
+                           │
+        ┌──────────────────┼──────────────────┐
+        │                  │                  │
+        ▼                  ▼                  ▼
+┌───────────────┐ ┌───────────────┐ ┌───────────────┐
+│     Core      │ │  Marketplace  │ │   Payments    │
+│   Service     │ │   Service     │ │   Service     │
+└───────┬───────┘ └───────┬───────┘ └───────┬───────┘
+        │                  │                  │
+        └──────────────────┼──────────────────┘
+                           │
+                           ▼
+              ┌─────────────────────────┐
+              │     Kafka Event Bus      │
+              │  (Event Publishing)      │
+              └────────────┬────────────┘
+                           │
+        ┌──────────────────┼──────────────────┐
+        │                  │                  │
+        ▼                  ▼                  ▼
+┌───────────────┐ ┌───────────────┐ ┌───────────────┐
+│ Notifications │ │  Analytics    │ │    Audit      │
+│   Service    │ │   Service     │ │    Service    │
+└───────────────┘ └───────────────┘ └───────────────┘
+```
+
+## Event Flow
+
+```
+Order Created → Kafka → Notifications (send SMS)
+                      → Analytics (track metrics)
+                      → Payments (process)
+                      → Audit (log)
+```
+
+## Event Topics
+
+| Topic | Description |
+|-------|-------------|
+| `payment.initiated` | Payment started |
+| `payment.completed` | Payment successful |
+| `order.created` | New order |
+| `order.paid` | Order paid |
+| `order.shipped` | Order shipped |
+| `member.joined` | New member |
+| `loan.approved` | Loan approved |
 
 ## Quick Start
 
 ```bash
-# Run all services
+# Docker Compose
 docker-compose -f docker/docker-compose.yml up
 
 # Or run individually
+cd services/kafka-service && python main.py
 cd services/core-service && python main.py
 cd services/marketplace-service && python main.py
 cd services/payments-service && python main.py
 cd services/notifications-service && python main.py
-cd services/messaging-service && python main.py
 ```
 
 ## Environment
 
 ```env
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/chama
+KAFKA_SERVICE_URL=http://localhost:9092
+
+# M-Pesa
 MPESA_SHORTCODE=123456
 MPESA_CONSUMER_KEY=xxx
-MPESA_CONSUMER_SECRET=xxx
-MPESA_PASSKEY=xxx
+
+# Pesapal
 PESAPAL_CONSUMER_KEY=xxx
-PESAPAL_CONSUMER_SECRET=xxx
 ```
 
 ## API Examples
 
-### Create Member
+### Publish Event
 ```bash
-curl -X POST http://localhost:8001/members -H "Content-Type: application/json" -d '{"phone":"254712345678","name":"John","organization_id":"org_1"}'
+curl -X POST http://localhost:9092/events/publish -H "Content-Type: application/json" -d '{
+  "type": "order.created",
+  "payload": {"order_id": "ord_1", "amount": 5000},
+  "source": "marketplace-service"
+}'
 ```
 
-### Create Listing
+### Subscribe to Events
 ```bash
-curl -X POST http://localhost:8002/listings -H "Content-Type: application/json" -d '{"title":"Bike for sale","description":"Good condition","category":"PRODUCTS","price":5000}'
+curl -X POST "http://localhost:9092/events/subscribe?event_type=order.created&callback_url=http://notifications-service"
 ```
 
-### Initiate Payment
+### Get Events
 ```bash
-curl -X POST http://localhost:8003/mpesa/stk-push -H "Content-Type: application/json" -d '{"amount":1000,"phone":"254712345678","reference":"order_1"}'
+curl http://localhost:9092/events/order.created
 ```
 
-### Send Notification
+### Order Flow Example
 ```bash
-curl -X POST http://localhost:8004/send -H "Content-Type: application/json" -d '{"user_id":"user_1","title":"Hello","body":"Test","channel":"in_app"}'
+curl -X POST http://localhost:9092/examples/order-flow -d '{"order_id":"ord_123","buyer_id":"mem_1","amount":5000}'
 ```
