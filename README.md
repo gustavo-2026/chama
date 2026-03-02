@@ -1,78 +1,61 @@
-# Chama Microservices Architecture
+# Chama Microservices
 
-## Overview
-
-This is a **microservices version** of the Chama platform. See the main `chama` directory for the monolith version.
+Microservices architecture version of the Chama platform.
 
 ## Services
 
 | Service | Port | Description |
 |---------|------|-------------|
-| API Gateway | 8000 | Nginx load balancer |
-| Core | 8001 | Members, Contributions, Loans |
-| Marketplace | 8002 | Listings, Orders, Reviews |
-| Payments | 8003 | M-Pesa, Pesapal, Wallet |
-| Notifications | 8004 | Push, SMS, Email |
+| Core | 8001 | Members, Contributions, Loans, Treasury, Proposals |
+| Marketplace | 8002 | Listings, Orders, Reviews, Escrow |
+| Payments | 8003 | M-Pesa, Pesapal, Wallet, Escrow |
+| Notifications | 8004 | Push, SMS, Email, In-App |
 | Messaging | 8005 | Real-time WebSocket chat |
 
 ## Quick Start
 
 ```bash
-cd docker
-docker-compose up
+# Run all services
+docker-compose -f docker/docker-compose.yml up
+
+# Or run individually
+cd services/core-service && python main.py
+cd services/marketplace-service && python main.py
+cd services/payments-service && python main.py
+cd services/notifications-service && python main.py
+cd services/messaging-service && python main.py
 ```
-
-## Architecture
-
-```
-                    ┌──────────────┐
-                    │ API Gateway  │
-                    │   (Nginx)    │
-                    └──────┬───────┘
-                           │
-        ┌──────────────────┼──────────────────┐
-        │                  │                  │
-        ▼                  ▼                  ▼
-┌───────────────┐ ┌───────────────┐ ┌───────────────┐
-│     Core      │ │  Marketplace  │ │   Payments    │
-│   Service     │ │   Service     │ │   Service     │
-└───────────────┘ └───────────────┘ └───────────────┘
-        │                  │                  │
-        └──────────────────┼──────────────────┘
-                           │
-        ┌──────────────────┼──────────────────┐
-        │                  │                  │
-        ▼                  ▼                  ▼
-┌───────────────┐ ┌───────────────┐ ┌───────────────┐
-│  PostgreSQL    │ │    Redis      │ │  Notification │
-│   (Shared)    │ │  (Pub/Sub)    │ │    Service    │
-└───────────────┘ └───────────────┘ └───────────────┘
-                           │
-                           ▼
-                    ┌───────────────┐
-                    │   Messaging    │
-                    │   (WebSocket) │
-                    └───────────────┘
-```
-
-## Key Features
-
-- **Real-time Messaging**: WebSocket-based chat
-- **Event-Driven**: Services communicate via events (RabbitMQ/Kafka ready)
-- **Independent Scaling**: Each service scales separately
-- **Technology**: FastAPI, PostgreSQL, Redis, Nginx
 
 ## Environment
 
 ```env
-DATABASE_URL=postgresql://postgres:postgres@postgres:5432/chama
-REDIS_URL=redis://redis:6379
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/chama
+MPESA_SHORTCODE=123456
+MPESA_CONSUMER_KEY=xxx
+MPESA_CONSUMER_SECRET=xxx
+MPESA_PASSKEY=xxx
+PESAPAL_CONSUMER_KEY=xxx
+PESAPAL_CONSUMER_SECRET=xxx
 ```
 
-## Development
+## API Examples
 
+### Create Member
 ```bash
-# Run individual service
-cd services/messaging-service
-python main.py
+curl -X POST http://localhost:8001/members -H "Content-Type: application/json" -d '{"phone":"254712345678","name":"John","organization_id":"org_1"}'
+```
+
+### Create Listing
+```bash
+curl -X POST http://localhost:8002/listings -H "Content-Type: application/json" -d '{"title":"Bike for sale","description":"Good condition","category":"PRODUCTS","price":5000}'
+```
+
+### Initiate Payment
+```bash
+curl -X POST http://localhost:8003/mpesa/stk-push -H "Content-Type: application/json" -d '{"amount":1000,"phone":"254712345678","reference":"order_1"}'
+```
+
+### Send Notification
+```bash
+curl -X POST http://localhost:8004/send -H "Content-Type: application/json" -d '{"user_id":"user_1","title":"Hello","body":"Test","channel":"in_app"}'
 ```
