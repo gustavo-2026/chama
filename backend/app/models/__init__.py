@@ -18,3 +18,6 @@ from app.models.marketplace import (
     MarketplaceCategory, ListingStatus, OrderStatus
 )
 from app.models.mpesa_config import *
+from app.models.messaging import *
+from app.models.subscriptions import *
+from app.models.wallet import *
