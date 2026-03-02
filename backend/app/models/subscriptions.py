@@ -1,7 +1,7 @@
 """
 Subscription Tiers
 """
-from sqlalchemy import Column, String, DateTime, Boolean, Numeric, ForeignKey, Integer
+from sqlalchemy import Column, String, DateTime, Text, Boolean, Numeric, ForeignKey, Integer
 from sqlalchemy.sql import func
 from app.db.database import Base
 

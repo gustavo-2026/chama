@@ -89,8 +89,8 @@ app.include_router(announcements.router, prefix="/api/v1", tags=["announcements"
 app.include_router(meeting_notices.router, prefix="/api/v1", tags=["meeting-notices"])
 app.include_router(guarantors.router, prefix="/api/v1", tags=["guarantors"])
 app.include_router(marketplace.router, prefix="/api/v1", tags=["marketplace"])
-app.include_router(mpesa_config,
-    messaging_wallet.router, prefix="/api/v1", tags=["mpesa-config"])
+app.include_router(mpesa_config.router, prefix="/api/v1", tags=["mpesa-config"])
+app.include_router(messaging_wallet.router, prefix="/api/v1", tags=["messaging-wallet"])
 app.include_router(analytics.router, prefix="/api/v1", tags=["analytics"])
 app.include_router(budget.router, prefix="/api/v1", tags=["budget"])
 app.include_router(tax_reports.router, prefix="/api/v1", tags=["tax-reports"])

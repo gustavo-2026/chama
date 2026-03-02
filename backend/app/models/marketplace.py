@@ -1,7 +1,7 @@
 """
 Marketplace Models - Comprehensive with Payments
 """
-from sqlalchemy import Column, String, DateTime, Text, Boolean, ForeignKey, Numeric, Enum as SQLEnum
+from sqlalchemy import Column, String, DateTime, Text, Boolean, ForeignKey, Numeric, Integer, Enum as SQLEnum
 from sqlalchemy.sql import func
 from app.db.database import Base
 import enum
@@ -213,3 +213,71 @@ class AffiliatePayout(Base):
     
     processed_at = Column(DateTime)
     created_at = Column(DateTime, server_default=func.now())
+
+
+    # Buyer & Seller
+    buyer_id = Column(String, ForeignKey("members.id"), nullable=False)
+    buyer_org_id = Column(String, ForeignKey("organizations.id"), nullable=False)
+    seller_id = Column(String, ForeignKey("members.id"), nullable=False)
+    seller_org_id = Column(String, ForeignKey("organizations.id"), nullable=False)
+    
+    # Listing
+    listing_id = Column(String, ForeignKey("marketplace_listings.id"), nullable=False)
+    
+    # Amounts
+    amount = Column(Numeric(12, 2), nullable=False)
+    platform_fee = Column(Numeric(12, 2), default=0)
+    chama_fee = Column(Numeric(12, 2), default=0)
+    cross_chama_premium = Column(Numeric(12, 2), default=0)
+    affiliate_commission = Column(Numeric(12, 2), default=0)
+    shipping_cost = Column(Numeric(12, 2), default=0)
+    total = Column(Numeric(12, 2), nullable=False)
+    
+    # Escrow
+    escrow_status = Column(String, default="HELD")  # HELD, RELEASED, REFUNDED
+    escrow_released_at = Column(DateTime)
+    auto_release_days = Column(Integer, default=7)  # Auto-release after 7 days
+    
+    # Status
+    status = Column(SQLEnum(OrderStatus), default=OrderStatus.PENDING)
+    
+    # Shipping
+    shipping_address = Column(Text)
+    tracking_number = Column(String)
+    
+    # Payment
+    mpesa_code = Column(String)
+    paid_at = Column(DateTime)
+    
+    # Timeline
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    shipped_at = Column(DateTime)
+    delivered_at = Column(DateTime)
+    completed_at = Column(DateTime)
+
+
+class Dispute(Base):
+    __tablename__ = "marketplace_disputes"
+    
+    id = Column(String, primary_key=True, default=lambda: f"dis_{func.random(16)}")
+    
+    order_id = Column(String, ForeignKey("marketplace_orders.id"), nullable=False)
+    opened_by = Column(String, ForeignKey("members.id"), nullable=False)
+    
+    # Reason
+    reason = Column(String, nullable=False)  # NOT_RECEIVED, NOT_AS_DESCRIBED, DAMAGED, OTHER
+    description = Column(Text, nullable=False)
+    
+    # Resolution
+    status = Column(String, default="OPEN")  # OPEN, UNDER_REVIEW, RESOLVED, CLOSED
+    resolution = Column(String)  # REFUND, RELEASE, PARTIAL_REFUND
+    resolved_by = Column(String, ForeignKey("members.id"))
+    resolution_notes = Column(Text)
+    
+    # Evidence
+    evidence_urls = Column(Text)  # JSON array
+    
+    # Timeline
+    opened_at = Column(DateTime, server_default=func.now())
+    resolved_at = Column(DateTime)

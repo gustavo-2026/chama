@@ -3,21 +3,22 @@ M-Pesa Configuration Endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
+import jwt
 
 from app.db.database import get_db
-from app.models import Member
+from app.models import Member, Organization
 from app.models.mpesa_config import MpesaConfig, ChamaMpesaConfig, MpesaTransaction
 from app.core.config import settings
 
 router = APIRouter()
 
 
-# ============ Helpers ============
+# ============ Helper Functions ============
 
-def get_current_member(db: Session = Depends(get_db), authorization: str = Header(None)):
-    import jwt
+def get_current_member(db: Session, authorization: str = Header(None)) -> Member:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Not authenticated")
     token = authorization.replace("Bearer ", "")
@@ -29,18 +30,22 @@ def get_current_member(db: Session = Depends(get_db), authorization: str = Heade
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
-def require_admin(db: Session = Depends(get_db), authorization: str = Header(None)):
+def require_admin(db: Session, authorization: str = Header(None)) -> Member:
     member = get_current_member(db, authorization)
     if member.role not in ["CHAIR", "TREASURER"]:
         raise HTTPException(status_code=403, detail="Admin access required")
     return member
 
 
-def require_super_admin(db: Session = Depends(get_db), authorization: str = Header(None)):
-    return get_current_member(db, authorization)
+def require_super_admin(db: Session, authorization: str = Header(None)) -> Member:
+    member = get_current_member(db, authorization)
+    # For now, any CHAIR can manage platform settings
+    # In production, add a SUPER_ADMIN role
+    return member
 
 
-def get_platform_config(db: Session):
+def get_platform_config(db: Session) -> dict:
+    """Get platform M-Pesa config"""
     config = db.query(MpesaConfig).first()
     
     if not config:
@@ -69,12 +74,18 @@ def get_platform_config(db: Session):
 # ============ Platform Admin Endpoints ============
 
 @router.get("/admin/mpesa/config")
-def get_platform_mpesa_config(db: Session = Depends(get_db), current = Depends(require_super_admin)):
+def get_platform_mpesa_config(
+    db: Session = Depends(get_db),
+    current: Member = Depends(require_super_admin)
+):
     """Get platform M-Pesa configuration (super admin)"""
     config = db.query(MpesaConfig).first()
     
     if not config:
-        return {"configured": False, "message": "M-Pesa not configured"}
+        return {
+            "configured": False,
+            "message": "M-Pesa not configured. Please set up credentials."
+        }
     
     return {
         "configured": True,
@@ -84,10 +95,14 @@ def get_platform_mpesa_config(db: Session = Depends(get_db), current = Depends(r
         "auto_settle": config.auto_settle,
         "settle_hours": config.settle_hours,
         "allow_stk_push": config.allow_stk_push,
-        "allow_c2b": config.allow_c2b,
-        "allow_b2c": config.allow_b2c,
+        "allow_c2b": config.allow_c2b, "allow_b2c": config.allow_b2c,
         "allow_chama_till": config.allow_chama_till,
         "is_active": config.is_active,
+        "callback_urls": {
+            "stk": config.stk_callback_url,
+            "b2c": config.b2c_callback_url,
+            "c2b": config.c2b_callback_url
+        }
     }
 
 
@@ -106,9 +121,10 @@ def update_platform_mpesa_config(
     allow_b2c: bool = True,
     allow_chama_till: bool = False,
     db: Session = Depends(get_db),
-    current = Depends(require_super_admin)
+    current: Member = Depends(require_super_admin)
 ):
     """Update platform M-Pesa configuration"""
+    
     if environment not in ["sandbox", "production"]:
         raise HTTPException(status_code=400, detail="Invalid environment")
     
@@ -148,24 +164,35 @@ def update_platform_mpesa_config(
         db.add(config)
     
     db.commit()
+    
     return {"message": "M-Pesa configuration updated"}
 
 
 @router.post("/admin/mpesa/config/toggle")
-def toggle_platform_mpesa(active: bool, db: Session = Depends(get_db), current = Depends(require_admin)):
+def toggle_platform_mpesa(
+    active: bool,
+    db: Session = Depends(get_db),
+    current: Member = Depends(require_super_admin)
+):
     """Enable/disable platform M-Pesa"""
     config = db.query(MpesaConfig).first()
+    
     if not config:
         raise HTTPException(status_code=404, detail="M-Pesa not configured")
+    
     config.is_active = active
     db.commit()
+    
     return {"message": f"M-Pesa {'enabled' if active else 'disabled'}"}
 
 
 # ============ Chama M-Pesa Endpoints ============
 
 @router.get("/mpesa/settings")
-def get_chama_mpesa_settings(db: Session = Depends(get_db), current = Depends(require_admin)):
+def get_chama_mpesa_settings(
+    db: Session = Depends(get_db),
+    current: Member = Depends(require_admin)
+):
     """Get chama's M-Pesa settings"""
     config = db.query(ChamaMpesaConfig).filter(
         ChamaMpesaConfig.organization_id == current.organization_id
@@ -174,7 +201,12 @@ def get_chama_mpesa_settings(db: Session = Depends(get_db), current = Depends(re
     platform = get_platform_config(db)
     
     if not config:
-        return {"use_own_till": False, "prefer_own_till": False, "settlement_phone": None, "platform_config": platform}
+        return {
+            "use_own_till": False,
+            "prefer_own_till": False,
+            "settlement_phone": None,
+            "platform_config": platform
+        }
     
     return {
         "use_own_till": config.use_own_till,
@@ -195,12 +227,17 @@ def update_chama_mpesa_settings(
     passkey: str = None,
     settlement_phone: str = None,
     db: Session = Depends(get_db),
-    current = Depends(require_admin)
+    current: Member = Depends(require_admin)
 ):
     """Update chama's M-Pesa settings"""
+    
+    # Check if platform allows chama-specific tills
     platform = get_platform_config(db)
     if use_own_till and not platform.get("allow_chama_till"):
-        raise HTTPException(status_code=403, detail="Platform does not allow individual chama M-Pesa tills")
+        raise HTTPException(
+            status_code=403,
+            detail="Platform does not allow individual chama M-Pesa tills"
+        )
     
     config = db.query(ChamaMpesaConfig).filter(
         ChamaMpesaConfig.organization_id == current.organization_id
@@ -210,6 +247,7 @@ def update_chama_mpesa_settings(
         config.use_own_till = use_own_till
         config.prefer_own_till = prefer_own_till
         config.settlement_phone = settlement_phone
+        
         if use_own_till:
             config.shortcode = shortcode
             config.consumer_key = consumer_key
@@ -229,25 +267,33 @@ def update_chama_mpesa_settings(
         db.add(config)
     
     db.commit()
+    
     return {"message": "M-Pesa settings updated"}
 
 
-# ============ Payment Flow ============
+# ============ Payment Flow Logic ============
 
 @router.get("/mpesa/payment-flow")
-def get_payment_flow(seller_org_id: str, db: Session = Depends(get_db), current = Depends(get_current_member)):
-    """Determine which M-Pesa flow to use"""
+def get_payment_flow(
+    seller_org_id: str,
+    db: Session = Depends(get_db),
+    current: Member = Depends(get_current_member)
+):
+    """Determine which M-Pesa flow to use for a transaction"""
+    
     platform = get_platform_config(db)
     
     if not platform.get("configured"):
         raise HTTPException(status_code=503, detail="M-Pesa not configured")
     
+    # Get chama config
     chama_config = db.query(ChamaMpesaConfig).filter(
         ChamaMpesaConfig.organization_id == seller_org_id
     ).first()
     
     payment_mode = platform.get("payment_mode", "central")
     
+    # Determine flow
     flow = {
         "mode": payment_mode,
         "use_chama_till": False,
@@ -255,47 +301,84 @@ def get_payment_flow(seller_org_id: str, db: Session = Depends(get_db), current 
         "environment": platform.get("environment")
     }
     
-    if payment_mode == "chama":
+    if payment_mode == "central":
+        # All payments go through platform
+        flow["shortcode"] = platform.get("shortcode")
+        
+    elif payment_mode == "chama":
+        # Use chama's own till (if configured)
         if chama_config and chama_config.use_own_till:
             flow["use_chama_till"] = True
             flow["shortcode"] = chama_config.shortcode
         else:
-            raise HTTPException(status_code=400, detail="Chama has not configured their M-Pesa till")
+            raise HTTPException(
+                status_code=400,
+                detail="Chama has not configured their M-Pesa till"
+            )
+            
     elif payment_mode == "hybrid":
+        # Chama can choose, default to platform
         if chama_config and chama_config.prefer_own_till and chama_config.use_own_till:
             flow["use_chama_till"] = True
             flow["shortcode"] = chama_config.shortcode
+        else:
+            flow["shortcode"] = platform.get("shortcode")
     
     return flow
 
 
-# ============ Transactions ============
+# ============ Transaction History ============
 
 @router.get("/mpesa/transactions")
-def get_mpesa_transactions(transaction_type: str = None, status: str = None, limit: int = 50, db: Session = Depends(get_db), current = Depends(require_admin)):
+def get_mpesa_transactions(
+    transaction_type: str = None,
+    status: str = None,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current: Member = Depends(require_admin)
+):
     """Get M-Pesa transaction history"""
-    query = db.query(MpesaTransaction).filter(MpesaTransaction.organization_id == current.organization_id)
+    query = db.query(MpesaTransaction).filter(
+        MpesaTransaction.organization_id == current.organization_id
+    )
+    
     if transaction_type:
         query = query.filter(MpesaTransaction.transaction_type == transaction_type)
     if status:
         query = query.filter(MpesaTransaction.status == status)
+    
     return query.order_by(MpesaTransaction.initiated_at.desc()).limit(limit).all()
 
 
-# ============ Test ============
+# ============ Test Endpoints ============
 
 @router.post("/admin/mpesa/test-connection")
-def test_mpesa_connection(db: Session = Depends(get_db), current = Depends(require_super_admin)):
+def test_mpesa_connection(
+    db: Session = Depends(get_db),
+    current: Member = Depends(require_super_admin)
+):
     """Test M-Pesa connection"""
     import requests
+    
     config = db.query(MpesaConfig).first()
+    
     if not config:
         raise HTTPException(status_code=404, detail="M-Pesa not configured")
+    
+    # Try to get access token
     try:
         auth_url = "https://sandbox.safaricom.co.ke/oauth/v1/generate" if config.environment == "sandbox" else "https://api.safaricom.co.ke/oauth/v1/generate"
-        response = requests.get(auth_url, params={"grant_type": "client_credentials"}, auth=(config.consumer_key, config.consumer_secret), timeout=10)
+        
+        response = requests.get(
+            auth_url,
+            params={"grant_type": "client_credentials"},
+            auth=(config.consumer_key, config.consumer_secret)
+        )
+        
         if response.status_code == 200:
             return {"status": "success", "message": "M-Pesa connection successful"}
-        return {"status": "error", "message": response.text}
+        else:
+            return {"status": "error", "message": response.text}
+            
     except Exception as e:
         return {"status": "error", "message": str(e)}

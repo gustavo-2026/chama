@@ -1,7 +1,7 @@
 """
 M-Pesa Configuration Models
 """
-from sqlalchemy import Column, String, DateTime, Text, Boolean, Numeric, ForeignKey
+from sqlalchemy import Column, String, DateTime, Text, Boolean, Numeric, Integer, ForeignKey
 from sqlalchemy.sql import func
 from app.db.database import Base
 

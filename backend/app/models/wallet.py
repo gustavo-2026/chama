@@ -1,7 +1,7 @@
 """
 Wallet System
 """
-from sqlalchemy import Column, String, DateTime, Numeric, ForeignKey
+from sqlalchemy import Column, String, DateTime, Text, Numeric, Integer, Boolean, ForeignKey
 from sqlalchemy.sql import func
 from app.db.database import Base
 

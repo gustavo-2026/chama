@@ -834,3 +834,238 @@ def calculate_cross_chama_fees(db: Session, amount: float, seller_org_id: str, b
         "affiliate_commission": round(affiliate_commission, 2),
         "seller_net": round(seller_net, 2)
     }
+
+
+# ============ Escrow & Delivery ============
+
+@router.post("/orders/{order_id}/ship")
+def ship_order(
+    order_id: str,
+    tracking_number: str = None,
+    shipping_address: str = None,
+    db: Session = Depends(get_db),
+    current: Member = Depends(require_member)
+):
+    """Seller marks order as shipped"""
+    order = db.query(MarketplaceOrder).filter(MarketplaceOrder.id == order_id).first()
+    
+    if not order or order.seller_id != current.id:
+        raise HTTPException(status_code=404)
+    
+    if order.status not in [OrderStatus.PAID, OrderStatus.PROCESSING]:
+        raise HTTPException(status_code=400, detail="Order not ready for shipping")
+    
+    order.status = OrderStatus.SHIPPED
+    order.tracking_number = tracking_number
+    order.shipping_address = shipping_address or order.shipping_address
+    order.shipped_at = datetime.utcnow()
+    
+    db.commit()
+    
+    return {"message": "Order shipped", "status": order.status}
+
+
+@router.post("/orders/{order_id}/delivered")
+def mark_delivered(
+    order_id: str,
+    db: Session = Depends(get_db),
+    current: Member = Depends(require_member)
+):
+    """Seller marks order as delivered"""
+    order = db.query(MarketplaceOrder).filter(MarketplaceOrder.id == order_id).first()
+    
+    if not order or order.seller_id != current.id:
+        raise HTTPException(status_code=404)
+    
+    if order.status != OrderStatus.SHIPPED:
+        raise HTTPException(status_code=400, detail="Order not shipped")
+    
+    order.status = OrderStatus.DELIVERED
+    order.delivered_at = datetime.utcnow()
+    
+    db.commit()
+    
+    return {"message": "Delivered - buyer has 7 days to confirm or dispute"}
+
+
+@router.post("/orders/{order_id}/confirm")
+def confirm_delivery(
+    order_id: str,
+    db: Session = Depends(get_db),
+    current: Member = Depends(require_member)
+):
+    """Buyer confirms delivery - releases escrow"""
+    order = db.query(MarketplaceOrder).filter(MarketplaceOrder.id == order_id).first()
+    
+    if not order or order.buyer_id != current.id:
+        raise HTTPException(status_code=404)
+    
+    if order.status != OrderStatus.DELIVERED:
+        raise HTTPException(status_code=400, detail="Order not delivered")
+    
+    # Release escrow to seller
+    order.status = OrderStatus.COMPLETED
+    order.escrow_status = "RELEASED"
+    order.escrow_released_at = datetime.utcnow()
+    order.completed_at = datetime.utcnow()
+    
+    # In production: Transfer funds to seller's wallet/B2C
+    
+    db.commit()
+    
+    return {"message": "Delivery confirmed - funds released to seller", "escrow_status": "RELEASED"}
+
+
+@router.post("/orders/{order_id}/auto-complete")
+def auto_complete_order(
+    order_id: str,
+    db: Session = Depends(get_db),
+    current: Member = Depends(require_member)
+):
+    """Auto-complete order after 7 days if buyer doesn't confirm"""
+    order = db.query(MarketplaceOrder).filter(MarketplaceOrder.id == order_id).first()
+    
+    if not order:
+        raise HTTPException(status_code=404)
+    
+    if order.status != OrderStatus.DELIVERED:
+        raise HTTPException(status_code=400, detail="Order not delivered")
+    
+    # Check if 7 days passed
+    if order.delivered_at:
+        days_since = (datetime.utcnow() - order.delivered_at).days
+        if days_since < 7:
+            raise HTTPException(status_code=400, detail=f"Cannot auto-complete yet. {7 - days_since} days remaining")
+    
+    order.status = OrderStatus.COMPLETED
+    order.escrow_status = "RELEASED"
+    order.escrow_released_at = datetime.utcnow()
+    order.completed_at = datetime.utcnow()
+    
+    db.commit()
+    
+    return {"message": "Order auto-completed - escrow released"}
+
+
+# ============ Disputes ============
+
+@router.post("/orders/{order_id}/dispute")
+def open_dispute(
+    order_id: str,
+    reason: str,
+    description: str,
+    evidence_urls: str = None,  # JSON array
+    db: Session = Depends(get_db),
+    current: Member = Depends(require_member)
+):
+    """Buyer opens a dispute"""
+    order = db.query(MarketplaceOrder).filter(MarketplaceOrder.id == order_id).first()
+    
+    if not order or order.buyer_id != current.id:
+        raise HTTPException(status_code=404)
+    
+    if order.status not in [OrderStatus.SHIPPED, OrderStatus.DELIVERED]:
+        raise HTTPException(status_code=400, detail="Cannot dispute this order")
+    
+    dispute = Dispute(
+        order_id=order_id,
+        opened_by=current.id,
+        reason=reason,
+        description=description,
+        evidence_urls=evidence_urls
+    )
+    db.add(dispute)
+    
+    order.status = OrderStatus.DISPUTED
+    
+    db.commit()
+    
+    return {"message": "Dispute opened", "dispute_id": dispute.id}
+
+
+@router.get("/disputes")
+def list_disputes(
+    status: str = None,
+    db: Session = Depends(get_db),
+    current: Member = Depends(require_member)
+):
+    """List disputes (admin/chair only)"""
+    if current.role not in ["CHAIR", "TREASURER"]:
+        raise HTTPException(status_code=403)
+    
+    query = db.query(Dispute).filter(Dispute.order_id.in_(
+        db.query(MarketplaceOrder.id).filter(MarketplaceOrder.seller_org_id == current.organization_id)
+    ))
+    
+    if status:
+        query = query.filter(Dispute.status == status)
+    
+    return query.order_by(Dispute.opened_at.desc()).all()
+
+
+@router.get("/disputes/{dispute_id}")
+def get_dispute(
+    dispute_id: str,
+    db: Session = Depends(get_db),
+    current: Member = Depends(require_member)
+):
+    """Get dispute details"""
+    dispute = db.query(Dispute).filter(Dispute.id == dispute_id).first()
+    
+    if not dispute:
+        raise HTTPException(status_code=404)
+    
+    order = db.query(MarketplaceOrder).filter(MarketplaceOrder.id == dispute.order_id).first()
+    
+    # Check access
+    if current.role not in ["CHAIR", "TREASURER"]:
+        if order.buyer_id != current.id and order.seller_id != current.id:
+            raise HTTPException(status_code=403)
+    
+    return {"dispute": dispute, "order": order}
+
+
+@router.post("/disputes/{dispute_id}/resolve")
+def resolve_dispute(
+    dispute_id: str,
+    resolution: str,  # REFUND, RELEASE, PARTIAL_REFUND
+    resolution_notes: str = None,
+    db: Session = Depends(get_db),
+    current: Member = Depends(require_member)
+):
+    """Resolve dispute (admin only)"""
+    if current.role not in ["CHAIR", "TREASURER"]:
+        raise HTTPException(status_code=403)
+    
+    dispute = db.query(Dispute).filter(Dispute.id == dispute_id).first()
+    if not dispute:
+        raise HTTPException(status_code=404)
+    
+    order = db.query(MarketplaceOrder).filter(MarketplaceOrder.id == dispute.order_id).first()
+    
+    # Resolve
+    dispute.status = "RESOLVED"
+    dispute.resolution = resolution
+    dispute.resolved_by = current.id
+    dispute.resolution_notes = resolution_notes
+    dispute.resolved_at = datetime.utcnow()
+    
+    if resolution == "REFUND":
+        # Refund buyer, seller doesn't get paid
+        order.escrow_status = "REFUNDED"
+        order.status = OrderStatus.REFUNDED
+    elif resolution == "RELEASE":
+        # Release to seller
+        order.escrow_status = "RELEASED"
+        order.escrow_released_at = datetime.utcnow()
+        order.status = OrderStatus.COMPLETED
+        order.completed_at = datetime.utcnow()
+    elif resolution == "PARTIAL_REFUND":
+        # Partial refund, rest to seller
+        order.escrow_status = "RELEASED"
+        order.escrow_released_at = datetime.utcnow()
+        order.status = OrderStatus.COMPLETED
+    
+    db.commit()
+    
+    return {"message": f"Dispute resolved: {resolution}", "order_status": order.status}

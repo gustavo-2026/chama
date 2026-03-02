@@ -20,7 +20,7 @@ router = APIRouter()
 
 # ============ Helpers ============
 
-def get_member(db: Session, auth: str = Header(None)):
+def get_member(auth: str = Header(None), db: Session = Depends(get_db)):
     if not auth or not auth.startswith("Bearer "):
         raise HTTPException(status_code=401)
     token = auth.replace("Bearer ", "")
