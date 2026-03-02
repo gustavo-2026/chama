@@ -7,10 +7,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime, timedelta
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy import create_engine, Column, Integer, String, Numeric, Integer, DateTime, Text
+from sqlalchemy.orm import sessionmaker, declarative_base, Session
 import os
 import jwt
+
+Base = declarative_base()
 
 app = FastAPI(title="Core Banking Service")
 
@@ -27,8 +29,6 @@ app.add_middleware(
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@127.0.0.1:5432/chama")
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
-
 
 def get_db():
     db = SessionLocal()
@@ -36,8 +36,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-
 # ============ Models ============
 
 class Member(Base):
@@ -102,6 +100,7 @@ def get_current_member(db, authorization: str = Header(None)):
     token = authorization.replace("Bearer ", "")
     from app.core.config import settings
     try:
+        
         payload = jwt.decode(token, "SECRET_KEY", algorithms=["HS256"])
         return db.query(Member).filter(Member.id == payload.get("sub")).first()
     except:
@@ -116,7 +115,7 @@ def health():
 
 
 @app.post("/members", response_model=dict)
-def create_member(data: MemberCreate, db=Depends(get_db)):
+def create_member(data: MemberCreate, db: Session = Depends(get_db)):
     member = Member(
         id=f"mem_{datetime.utcnow().timestamp()}",
         phone=data.phone,
@@ -131,7 +130,7 @@ def create_member(data: MemberCreate, db=Depends(get_db)):
 
 
 @app.get("/members/{member_id}", response_model=dict)
-def get_member(member_id: str, db=Depends(get_db)):
+def get_member(member_id: str, db: Session = Depends(get_db)):
     member = db.query(Member).filter(Member.id == member_id).first()
     if not member:
         raise HTTPException(status_code=404)
@@ -146,7 +145,7 @@ def get_member(member_id: str, db=Depends(get_db)):
 
 
 @app.get("/members", response_model=List[dict])
-def list_members(org_id: str = None, limit: int = 50, db=Depends(get_db)):
+def list_members(org_id: str = None, limit: int = 50, db: Session = Depends(get_db)):
     query = db.query(Member)
     if org_id:
         query = query.filter(Member.organization_id == org_id)
@@ -157,7 +156,7 @@ def list_members(org_id: str = None, limit: int = 50, db=Depends(get_db)):
 # ============ Contribution Endpoints ============
 
 @app.post("/contributions", response_model=dict)
-def create_contribution(data: ContributionCreate, db=Depends(get_db)):
+def create_contribution(data: ContributionCreate, db: Session = Depends(get_db)):
     contrib = Contribution(
         id=f"con_{datetime.utcnow().timestamp()}",
         member_id=data.member_id,
@@ -171,14 +170,14 @@ def create_contribution(data: ContributionCreate, db=Depends(get_db)):
 
 
 @app.get("/contributions/member/{member_id}", response_model=List[dict])
-def get_member_contributions(member_id: str, db=Depends(get_db)):
+def get_member_contributions(member_id: str, db: Session = Depends(get_db)):
     contribs = db.query(Contribution).filter(Contribution.member_id == member_id).all()
     return [{"id": c.id, "amount": float(c.amount), "status": c.status, "created_at": c.created_at} 
             for c in contribs]
 
 
 @app.get("/contributions/organization/{org_id}", response_model=dict)
-def get_org_contributions(org_id: str, db=Depends(get_db)):
+def get_org_contributions(org_id: str, db: Session = Depends(get_db)):
     members = db.query(Member).filter(Member.organization_id == org_id).all()
     member_ids = [m.id for m in members]
     contribs = db.query(Contribution).filter(Contribution.member_id.in_(member_ids)).all()
@@ -189,7 +188,7 @@ def get_org_contributions(org_id: str, db=Depends(get_db)):
 # ============ Loan Endpoints ============
 
 @app.post("/loans", response_model=dict)
-def create_loan(data: LoanCreate, db=Depends(get_db)):
+def create_loan(data: LoanCreate, db: Session = Depends(get_db)):
     loan = Loan(
         id=f"lon_{datetime.utcnow().timestamp()}",
         member_id=data.member_id,
@@ -203,7 +202,7 @@ def create_loan(data: LoanCreate, db=Depends(get_db)):
 
 
 @app.get("/loans/{loan_id}", response_model=dict)
-def get_loan(loan_id: str, db=Depends(get_db)):
+def get_loan(loan_id: str, db: Session = Depends(get_db)):
     loan = db.query(Loan).filter(Loan.id == loan_id).first()
     if not loan:
         raise HTTPException(status_code=404)
@@ -217,14 +216,14 @@ def get_loan(loan_id: str, db=Depends(get_db)):
 
 
 @app.get("/loans/member/{member_id}", response_model=List[dict])
-def get_member_loans(member_id: str, db=Depends(get_db)):
+def get_member_loans(member_id: str, db: Session = Depends(get_db)):
     loans = db.query(Loan).filter(Loan.member_id == member_id).all()
     return [{"id": l.id, "amount": float(l.principal_amount), "status": l.status} 
             for l in loans]
 
 
 @app.post("/loans/{loan_id}/approve")
-def approve_loan(loan_id: str, db=Depends(get_db), member=Depends(get_current_member)):
+def approve_loan(loan_id: str, db: Session = Depends(get_db), member = Depends(get_current_member)):
     loan = db.query(Loan).filter(Loan.id == loan_id).first()
     if not loan:
         raise HTTPException(status_code=404)
@@ -238,7 +237,7 @@ def approve_loan(loan_id: str, db=Depends(get_db), member=Depends(get_current_me
 # ============ Treasury Endpoints ============
 
 @app.get("/treasury/{org_id}", response_model=dict)
-def get_treasury(org_id: str, db=Depends(get_db)):
+def get_treasury(org_id: str, db: Session = Depends(get_db)):
     # Get members
     members = db.query(Member).filter(Member.organization_id == org_id).all()
     member_ids = [m.id for m in members]
@@ -301,7 +300,7 @@ def create_proposal(
 
 
 @app.get("/proposals/{org_id}", response_model=List[dict])
-def list_proposals(org_id: str, db=Depends(get_db)):
+def list_proposals(org_id: str, db: Session = Depends(get_db)):
     props = db.query(Proposal).filter(Proposal.organization_id == org_id).all()
     return [{"id": p.id, "title": p.title, "status": p.status} for p in props]
 
@@ -325,7 +324,7 @@ def vote_proposal(
 
 
 @app.get("/proposals/{proposal_id}/results", response_model=dict)
-def get_proposal_results(proposal_id: str, db=Depends(get_db)):
+def get_proposal_results(proposal_id: str, db: Session = Depends(get_db)):
     votes = db.query(Vote).filter(Vote.proposal_id == proposal_id).all()
     return {
         "approve": sum(1 for v in votes if v.vote_type == "APPROVE"),

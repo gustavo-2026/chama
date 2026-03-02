@@ -278,7 +278,7 @@ templates = {
         "title": "Welcome to Chama!",
         "body": "Your chama account is ready. Start contributing!"
     },
-    today "contribution_reminder": {
+    "contribution_reminder": {
         "title": "Contribution Reminder",
         "body": "Your monthly contribution is due. Keep your chama strong!"
     },

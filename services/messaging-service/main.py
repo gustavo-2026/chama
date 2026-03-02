@@ -229,7 +229,7 @@ def get_messages(conversation_id: str, limit: int = 50):
 
 
 @app.post("/conversations/{conversation_id}/messages")
-def send_message(conversation_id: str, sender_id: str, content: str):
+def send_message(conversation_id: str, sender_id: str = None, content: str = None):
     """Send a message (REST alternative to WebSocket)"""
     message = Message(
         id=f"msg_{datetime.utcnow().timestamp()}",
@@ -265,4 +265,4 @@ def get_unread_count(user_id: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8003)
+    uvicorn.run(app, host="0.0.0.0", port=8005)

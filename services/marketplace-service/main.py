@@ -7,7 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, Column, String, Numeric, Integer, DateTime, Text
+from sqlalchemy.orm import Session
 from sqlalchemy.orm import sessionmaker, declarative_base
 from enum import Enum
 import os
@@ -140,7 +141,7 @@ def health():
 
 
 @app.post("/listings", response_model=dict)
-def create_listing(data: ListingCreate, db=Depends(get_db), member=Depends(get_current_member)):
+def create_listing(data: ListingCreate, db: Session = Depends(get_db), member = Depends(get_current_member)):
     listing = Listing(
         id=f"lst_{datetime.utcnow().timestamp()}",
         organization_id=member.get("organization_id"),
@@ -157,7 +158,7 @@ def create_listing(data: ListingCreate, db=Depends(get_db), member=Depends(get_c
 
 
 @app.get("/listings/{listing_id}", response_model=dict)
-def get_listing(listing_id: str, db=Depends(get_db)):
+def get_listing(listing_id: str, db: Session = Depends(get_db)):
     listing = db.query(Listing).filter(Listing.id == listing_id).first()
     if not listing:
         raise HTTPException(status_code=404)
@@ -177,7 +178,7 @@ def search_listings(
     org_id: str = None,
     query: str = None,
     limit: int = 50,
-    db=Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     q = db.query(Listing).filter(Listing.status == "ACTIVE")
     if category:
@@ -193,7 +194,7 @@ def search_listings(
 # ============ Order Endpoints ============
 
 @app.post("/orders", response_model=dict)
-def create_order(data: OrderCreate, db=Depends(get_db), member=Depends(get_current_member)):
+def create_order(data: OrderCreate, db: Session = Depends(get_db), member = Depends(get_current_member)):
     listing = db.query(Listing).filter(Listing.id == data.listing_id).first()
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
@@ -220,7 +221,7 @@ def create_order(data: OrderCreate, db=Depends(get_db), member=Depends(get_curre
 
 
 @app.get("/orders/{order_id}", response_model=dict)
-def get_order(order_id: str, db=Depends(get_db)):
+def get_order(order_id: str, db: Session = Depends(get_db)):
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404)
@@ -238,7 +239,7 @@ def get_order(order_id: str, db=Depends(get_db)):
 def list_orders(
     org_id: str = None,
     status: str = None,
-    db=Depends(get_db)
+    db: Session = Depends(get_db)
 ):
     q = db.query(Order)
     if org_id:
@@ -252,7 +253,7 @@ def list_orders(
 # ============ Escrow Endpoints ============
 
 @app.post("/orders/{order_id}/paid")
-def mark_paid(order_id: str, mpesa_code: str = None, db=Depends(get_db)):
+def mark_paid(order_id: str, mpesa_code: str = None, db: Session = Depends(get_db)):
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404)
@@ -263,7 +264,7 @@ def mark_paid(order_id: str, mpesa_code: str = None, db=Depends(get_db)):
 
 
 @app.post("/orders/{order_id}/ship")
-def ship_order(order_id: str, tracking: str = None, db=Depends(get_db)):
+def ship_order(order_id: str, tracking: str = None, db: Session = Depends(get_db)):
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order or order.status != "PAID":
         raise HTTPException(status_code=400)
@@ -273,7 +274,7 @@ def ship_order(order_id: str, tracking: str = None, db=Depends(get_db)):
 
 
 @app.post("/orders/{order_id}/delivered")
-def mark_delivered(order_id: str, db=Depends(get_db)):
+def mark_delivered(order_id: str, db: Session = Depends(get_db)):
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order or order.status != "SHIPPED":
         raise HTTPException(status_code=400)
@@ -283,7 +284,7 @@ def mark_delivered(order_id: str, db=Depends(get_db)):
 
 
 @app.post("/orders/{order_id}/confirm")
-def confirm_delivery(order_id: str, db=Depends(get_db)):
+def confirm_delivery(order_id: str, db: Session = Depends(get_db)):
     """Release escrow to seller"""
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order or order.status != "DELIVERED":
@@ -295,7 +296,7 @@ def confirm_delivery(order_id: str, db=Depends(get_db)):
 
 
 @app.post("/orders/{order_id}/dispute")
-def open_dispute(order_id: str, reason: str, db=Depends(get_db)):
+def open_dispute(order_id: str, reason: str, db: Session = Depends(get_db)):
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404)
@@ -312,7 +313,7 @@ def create_review(
     listing_id: str,
     order_id: str,
     data: ReviewCreate,
-    db=Depends(get_db),
+    db: Session = Depends(get_db),
     member=Depends(get_current_member)
 ):
     review = Review(
@@ -329,13 +330,13 @@ def create_review(
 
 
 @app.get("/reviews/listing/{listing_id}", response_model=List[dict])
-def get_listing_reviews(listing_id: str, db=Depends(get_db)):
+def get_listing_reviews(listing_id: str, db: Session = Depends(get_db)):
     reviews = db.query(Review).filter(Review.listing_id == listing_id).all()
     return [{"rating": r.rating, "comment": r.comment} for r in reviews]
 
 
 @app.get("/reviews/listing/{listing_id}/rating")
-def get_average_rating(listing_id: str, db=Depends(get_db)):
+def get_average_rating(listing_id: str, db: Session = Depends(get_db)):
     reviews = db.query(Review).filter(Review.listing_id == listing_id).all()
     if not reviews:
         return {"average": 0, "count": 0}
