@@ -14,20 +14,20 @@ from enum import Enum
 import os
 import jwt
 
+SECRET_KEY = "change-me-in-production-min-32-characters"
+
 app = FastAPI(title="Marketplace Service")
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@127.0.0.1:5432/chama")
-engine = create_engine(DATABASE_URL)
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./marketplace_service.db")
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Create tables
 Base = declarative_base()
-Base.metadata.create_all(bind=engine)
 
 
-def get_db():
+def get_db() -> Session:
     db = SessionLocal()
     try:
         yield db
@@ -106,6 +106,7 @@ class Review(Base):
 
 class ListingCreate(BaseModel):
     title: str
+
     description: str
     category: str
     price: float
@@ -124,14 +125,13 @@ class ReviewCreate(BaseModel):
 
 # ============ Helpers ============
 
-def get_current_member(db, authorization: str = Header(None)):
+def get_current_member(authorization: str = Header(None), db: Session = Depends(get_db)):
     if not authorization:
         raise HTTPException(status_code=401)
     token = authorization.replace("Bearer ", "")
-    from app.core.config import settings
     try:
-        payload = jwt.decode(token, "SECRET_KEY", algorithms=["HS256"])
-        return {"id": payload.get("sub"), "organization_id": "org_placeholder"}
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        return {"id": payload.get("sub"), "organization_id": payload.get("organization_id", "org_test")}
     except:
         raise HTTPException(status_code=401)
 
@@ -212,7 +212,7 @@ def create_order(data: OrderCreate, db: Session = Depends(get_db), member = Depe
         buyer_org_id=member.get("organization_id"),
         seller_id=listing.member_id,
         seller_org_id=listing.organization_id,
-        listing_id=listing.listing_id,
+        listing_id=listing.id,
         amount=amount,
         platform_fee=platform_fee,
         total=total,
@@ -347,6 +347,10 @@ def get_average_rating(listing_id: str, db: Session = Depends(get_db)):
     return {"average": round(avg, 1), "count": len(reviews)}
 
 
+# Create tables
+Base.metadata.create_all(bind=engine)
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8002)
+

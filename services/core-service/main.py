@@ -12,6 +12,8 @@ from sqlalchemy.orm import sessionmaker, declarative_base, Session
 import os
 import jwt
 
+SECRET_KEY = "change-me-in-production-min-32-characters"
+
 Base = declarative_base()
 
 app = FastAPI(title="Core Banking Service")
@@ -26,12 +28,11 @@ app.add_middleware(
 )
 
 # Database
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@127.0.0.1:5432/chama")
-engine = create_engine(DATABASE_URL)
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./core_service.db")
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Create tables
-Base.metadata.create_all(bind=engine)
 
 def get_db():
     db = SessionLocal()
@@ -69,6 +70,8 @@ class Loan(Base):
     principal_amount = Column(Numeric)
     term_months = Column(Integer)
     status = Column(String, default="PENDING")
+    approved_by = Column(String, nullable=True)
+    approved_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -101,10 +104,8 @@ def get_current_member(db, authorization: str = Header(None)):
     if not authorization:
         raise HTTPException(status_code=401)
     token = authorization.replace("Bearer ", "")
-    from app.core.config import settings
     try:
-        
-        payload = jwt.decode(token, "SECRET_KEY", algorithms=["HS256"])
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
         return db.query(Member).filter(Member.id == payload.get("sub")).first()
     except:
         raise HTTPException(status_code=401)
@@ -280,6 +281,9 @@ class Vote(Base):
     proposal_id = Column(String)
     member_id = Column(String)
     vote_type = Column(String)
+
+# Create tables
+Base.metadata.create_all(bind=engine)
 
 
 @app.post("/proposals", response_model=dict)

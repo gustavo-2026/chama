@@ -12,6 +12,8 @@ import json
 import jwt
 from collections import defaultdict
 
+SECRET_KEY = "change-me-in-production-min-32-characters"
+
 app = FastAPI(title="Messaging Service")
 
 # CORS
@@ -83,8 +85,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
     """WebSocket for real-time messaging"""
     try:
         # Verify token
-        from app.core.config import settings
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
         user_id = payload.get("sub")
         
         await manager.connect(websocket, user_id)
